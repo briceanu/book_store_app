@@ -1,26 +1,26 @@
+from typing import Annotated
+
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
+    Body,
     Depends,
-    status,
+    Header,
     HTTPException,
     Security,
-    BackgroundTasks,
-    Header,
-    Body,
-    UploadFile,
-    File
+    status,
+    Query,
 )
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.db_connection import get_async_db
-from app.repositories.user_repository import UserRepository
-from app.services.user_service import UserService
-from sqlalchemy.exc import IntegrityError
-from app.schemas import user_schemas
-from typing import Annotated
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.db_connection import get_async_db
 from app.models.app_models import User, Author
 from app.repositories.user_logic import get_current_active_user, get_current_user
-
+from app.repositories.user_repository import UserRepository
+from app.schemas import user_schemas
+from app.services.user_service import UserService
 
 router = APIRouter(prefix="/api/v1/user", tags=["routes for the user and author"])
 
@@ -294,7 +294,7 @@ async def deactivate_current_account(
     try:
         repo = UserRepository(user=user, async_session=async_session)
         service = UserService(repo)
-        return await service.deactiacte_account()
+        return await service.deactivate_account()
     except HTTPException:
         raise
     except Exception as e:
@@ -458,13 +458,32 @@ async def update_user_author_name(
 @router.patch(
     "/upload-photo",
     status_code=status.HTTP_200_OK,
-    # response_model=user_schemas.UpdateNameResponseSchema,
+    response_model=user_schemas.UpdateNameResponseSchema,
 )
 async def upload_photo(
     user: Annotated[User, Depends(get_current_active_user)],
-    photo:user_schemas.UploadImageSchema = Depends(),
+    photo: user_schemas.UploadImageSchema = Depends(),
     async_session: AsyncSession = Depends(get_async_db),
-) ->user_schemas.UploadImageResponseSchema:
+) -> user_schemas.UploadImageResponseSchema:
+    """
+    Upload a new profile photo for the authenticated user.
+
+    This endpoint allows authenticated users with either the "user" or "author" scope
+    to upload or update their profile photo. The uploaded image is received via form data
+    and processed by the UserService, which stores it (e.g., in AWS S3 or another cloud provider).
+
+    Args:
+        user (User): The currently authenticated user.
+        photo (UploadImageSchema): The uploaded photo file, parsed from form data.
+        async_session (AsyncSession): SQLAlchemy async database session.
+
+    Returns:
+        UploadImageResponseSchema: Contains metadata or URL of the uploaded image.
+
+    Raises:
+        HTTPException (401): If the user does not have the required scope.
+        HTTPException (500): If an unexpected error occurs during upload.
+    """
 
     if not ("user" in user.scopes or "author" in user.scopes):
         raise HTTPException(
@@ -473,9 +492,98 @@ async def upload_photo(
         )
 
     try:
-        repo = UserRepository(user=user,photo=photo,async_session=async_session)
+        repo = UserRepository(user=user, photo=photo, async_session=async_session)
         service = UserService(repo)
         return await service.upload_profile_image()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred: {str(e)}",
+        )
+
+
+@router.post(
+    "/remove-account",
+    status_code=status.HTTP_200_OK,
+    response_model=user_schemas.RemovedUserAuthorAccountSchema,
+)
+async def remove_user_author_account(
+    user: User = Depends(get_current_active_user),
+    async_session: AsyncSession = Depends(get_async_db),
+) -> user_schemas.RemovedUserAuthorAccountSchema:
+    """
+    Endpoint to remove both the user and the associated author account.
+
+    Args:
+        user (User): The currently authenticated user, injected via dependency.
+        async_session (AsyncSession): Async SQLAlchemy session, injected via dependency.
+
+    Returns:
+        RemovedUserAuthorAccountSchema: Schema indicating successful removal of user and author account.
+
+    Raises:
+        HTTPException 400: If a database integrity error occurs (e.g., foreign key constraint).
+        HTTPException 500: For any unexpected internal server errors.
+    """
+
+    try:
+        repo = UserRepository(user=user, async_session=async_session)
+        service = UserService(repo)
+        return await service.remove_both_user_author_account()
+    except IntegrityError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"An error occurred: {str(e.orig)}",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred: {str(e)}",
+        )
+
+
+@router.patch(
+    "/update-user-balance",
+    status_code=status.HTTP_200_OK,
+    response_model=user_schemas.BalanceUpdateSchemaResponse,
+)
+async def update_user_balance(
+    user: Annotated[User, Depends(get_current_active_user)],
+    balance: Annotated[user_schemas.BalanceSchemaIn, Body()],
+    async_session: AsyncSession = Depends(get_async_db),
+) -> user_schemas.BalanceUpdateSchemaResponse:
+    """
+    Update the balance of the currently authenticated user.
+
+    This endpoint allows users with the "user" or "author" scope to update their
+    balance. The new balance must be provided as a query parameter and must be a
+    non-negative decimal number with up to 6 digits and 2 decimal places.
+
+    Args:
+        user (User): The currently authenticated user, injected via dependency.
+        balance (BalanceSchemaIn): The new balance, validated by a Pydantic schema, provided via query parameters.
+        async_session (AsyncSession): The asynchronous SQLAlchemy session dependency.
+
+    Returns:
+        BalanceUpdateSchemaResponse: A response schema containing the updated balance.
+
+    Raises:
+        HTTPException (401): If the user does not have the required permissions.
+        HTTPException (500): If an unexpected error occurs during the update process.
+    """
+    if not ("user" in user.scopes or "author" in user.scopes):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not enough permissions",
+        )
+    try:
+        repo = UserRepository(user=user, async_session=async_session, balance=balance)
+        service = UserService(repo)
+        return await service.update_balance()
     except HTTPException:
         raise
     except Exception as e:

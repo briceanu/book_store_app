@@ -1,0 +1,5 @@
+.env
+.ruff_cache
+book_store_app_env
+users_images
+# var

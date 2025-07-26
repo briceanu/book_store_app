@@ -1,4 +1,5 @@
 from app.repositories.user_repository import UserRepository
+from app.schemas import user_schemas
 
 
 class UserService:
@@ -21,7 +22,7 @@ class UserService:
         """
         self.repository = repository
 
-    async def create_user_account(self):
+    async def create_user_account(self) -> user_schemas.SignUpSchemaResponse:
         """
         Create a new user account asynchronously.
 
@@ -30,7 +31,7 @@ class UserService:
         """
         return await self.repository.sign_up()
 
-    async def login_user(self):
+    async def login_user(self) -> user_schemas.Token:
         """
         Authenticate and log in a user asynchronously.
 
@@ -39,7 +40,7 @@ class UserService:
         """
         return await self.repository.sign_in()
 
-    async def login_out_user(self):
+    async def login_out_user(self) -> user_schemas.LogoutResponseSchema:
         """
         Logs out the currently authenticated user.
 
@@ -52,8 +53,9 @@ class UserService:
         """
         return await self.repository.logout()
 
-    
-    async def get_access_token_from_refresh_token(self):
+    async def get_access_token_from_refresh_token(
+        self,
+    ) -> user_schemas.NewAccessTokenResponseSchema:
         """
         Asynchronously generates a new access token using the existing refresh token.
 
@@ -64,9 +66,10 @@ class UserService:
             Exception: If token creation fails or the refresh token is invalid or expired.
         """
         return await self.repository.create_access_token_from_refresh()
-    
 
-    async def update_user_author_password(self):
+    async def update_user_author_password(
+        self,
+    ) -> user_schemas.UpdatePasswordResponseSchema:
         """
         Update the authenticated user's password.
 
@@ -77,9 +80,8 @@ class UserService:
             bool: True if the password was successfully updated, False otherwise.
         """
         return await self.repository.update_user_author_password()
-    
 
-    async def deactiacte_account(self):
+    async def deactivate_account(self) -> user_schemas.DeactivateAccountResponseSchema:
         """
         Asynchronously deactivate the current user's account.
 
@@ -92,9 +94,8 @@ class UserService:
             typically a success status or updated user object.
         """
         return await self.repository.deactivate_account()
-    
 
-    async def reactivate_account(self):
+    async def reactivate_account(self) -> user_schemas.ReactivateAccountResponseSchema:
         """
         Reactivates the current user's account.
 
@@ -106,9 +107,8 @@ class UserService:
             DeactivateAccountResponseSchema: A response object indicating successful reactivation.
         """
         return await self.repository.reactivate_account()
-    
 
-    async def update_email(self):
+    async def update_email(self) -> user_schemas.UpdateEmailResponseSchema:
         """
         Updates the email address of the current user.
 
@@ -119,8 +119,8 @@ class UserService:
             An appropriate response schema indicating the success or failure of the update.
         """
         return await self.repository.update_user_author_email()
-    
-    async def update_name(self):
+
+    async def update_name(self) -> user_schemas.UpdateNameResponseSchema:
         """
         Updates the name of the current user.
 
@@ -131,21 +131,8 @@ class UserService:
             An appropriate response schema indicating the outcome of the update.
         """
         return await self.repository.update_user_author_name()
-        
-    async def add_author_biography(self):
-        """
-        Asynchronously add or update the biography/description for an author.
 
-        This method delegates the task to the repository layer to persist the
-        author's descriptive information (bio) in the database.
-
-        Returns:
-            The result of the repository operation, typically a success confirmation or updated author data.
-        """
-        return await self.repository.add_author_description()
-
-
-    async def upload_profile_image(self):
+    async def upload_profile_image(self) -> user_schemas.UploadImageResponseSchema:
         """
         Asynchronously uploads the profile image for a user with an author role.
 
@@ -156,3 +143,29 @@ class UserService:
             The result of the image upload operation from the repository.
         """
         return await self.repository.upload_user_author_image()
+
+    async def remove_both_user_author_account(
+        self,
+    ) -> user_schemas.RemovedUserAuthorAccountSchema:
+        """
+        Asynchronously deletes both the user and corresponding author account.
+
+        This method delegates the account removal logic to the repository layer,
+        ensuring that all related data (user and author) are removed from the system
+        in a single operation.
+
+        Returns:
+            RemovedUserAuthorAccountSchema: A schema indicating successful deletion
+            along with any relevant metadata (e.g., confirmation message, deleted IDs).
+        """
+
+        return await self.repository.remove_account()
+
+    async def update_balance(self) -> user_schemas.BalanceUpdateSchemaResponse:
+        """
+        Asynchronously updates the current user's balance using the repository layer.
+
+        Returns:
+            BalanceUpdateSchemaResponse: A Pydantic schema containing a success message.
+        """
+        return await self.repository.update_user_balance()

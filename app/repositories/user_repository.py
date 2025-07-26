@@ -7,7 +7,7 @@ from fastapi.security.oauth2 import OAuth2PasswordRequestForm
 from jwt import ExpiredSignatureError
 from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
-from sqlalchemy import  select, update
+from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
@@ -18,46 +18,48 @@ from app.repositories import user_logic
 from app.repositories.user_logic import black_list_token, is_token_blacklisted
 from app.schemas import user_schemas, author_schemas
 from app.send_email import send_in_background
-from typing import Self
-
+from dataclasses import dataclass
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-
+@dataclass
 class UserRepository(AbstractUserInterface):
-    def __init__(
-        self,
-        background_tasks: BackgroundTasks | None = None,
-        async_session: AsyncSession | None = None,
-        user_data_sign_up: user_schemas.UserAuthorSignUpSchema | None = None,
-        form_data: OAuth2PasswordRequestForm | None = None,
-        token: user_schemas.TokenData | None = None,
-        update_password_data: user_schemas.UpdatePassword | None = None,
-        user: User | None = None,
-        author: Author | None = None,
-        update_email: user_schemas.UpdateEmail | None = None,
-        update_name: user_schemas.UpdateName | None = None,
-        author_description: author_schemas.AuthorDescription | None = None,
-        photo:UploadFile | None = None
-    )-> Self:
-        self.async_session: AsyncSession | None = async_session
-        self.user_data_sign_up: user_schemas.UserAuthorSignUpSchema | None = (
-            user_data_sign_up
-        )
-        self.background_tasks: BackgroundTasks | None = background_tasks
-        self.form_data: OAuth2PasswordRequestForm | None = form_data
-        self.token: user_schemas.TokenData | None = token
-        self.update_password_data: user_schemas.UpdatePassword | None = (
-            update_password_data
-        )
-        self.user: User | None = user
-        self.update_email: user_schemas.UpdateEmail | None = update_email
-        self.update_name: user_schemas.UpdateName | None = update_name
-        self.author_description: author_schemas.AuthorDescription | None = (
-            author_description
-        )
-        self.author: Author | None = author
-        self.photo: UploadFile | None = photo
+    """
+    Repository class for managing user and author operations.
+
+    This class encapsulates all logic related to user and author account management,
+    including registration, authentication, profile updates, password changes,
+    and media uploads.
+
+    Attributes:
+        async_session (AsyncSession | None): SQLAlchemy async session for database operations.
+        user_data_sign_up (UserAuthorSignUpSchema | None): Schema for user/author registration.
+        background_tasks (BackgroundTasks | None): FastAPI background task manager for async jobs.
+        form_data (OAuth2PasswordRequestForm | None): OAuth2 credentials used for login.
+        token (TokenData | None): JWT token data used for authenticated requests.
+        update_password_data (UpdatePassword | None): Schema for updating user password.
+        user (User | None): The current authenticated user.
+        author (Author | None): The current authenticated author (if applicable).
+        update_email (UpdateEmail | None): Schema for updating user email.
+        update_name (UpdateName | None): Schema for updating user name.
+        author_description (AuthorDescription | None): Schema for updating author's bio/description.
+        photo (UploadFile | None): Profile image uploaded by the user or author.
+    """
+
+
+    async_session: AsyncSession | None = None
+    user_data_sign_up: user_schemas.UserAuthorSignUpSchema | None =None
+    background_tasks: BackgroundTasks | None = None
+    form_data: OAuth2PasswordRequestForm | None = None
+    token: user_schemas.TokenData | None = None
+    update_password_data: user_schemas.UpdatePassword | None = None
+    user: User | None = None
+    update_email: user_schemas.UpdateEmail | None = None
+    update_name: user_schemas.UpdateName | None = None
+    author_description: author_schemas.AuthorDescription | None = None
+    author: Author | None = None
+    photo: UploadFile | None = None
+    balance: user_schemas.BalanceSchemaIn | None = None
 
     async def sign_up(self) -> user_schemas.SignUpSchemaResponse:
         """
@@ -176,7 +178,9 @@ class UserRepository(AbstractUserInterface):
         except InvalidTokenError:
             raise invalid_token
 
-    async def create_access_token_from_refresh(self):
+    async def create_access_token_from_refresh(
+        self,
+    ) -> user_schemas.NewAccessTokenResponseSchema:
         """
         Generate a new access token from a valid refresh token.
 
@@ -272,7 +276,7 @@ class UserRepository(AbstractUserInterface):
             success="Update password successfully."
         )
 
-    async def deactivate_account(self):
+    async def deactivate_account(self) -> user_schemas.DeactivateAccountResponseSchema:
         """
         Deactivates the current user's account by setting `is_active` to False.
 
@@ -296,7 +300,7 @@ class UserRepository(AbstractUserInterface):
             success="Account deactivated."
         )
 
-    async def reactivate_account(self):
+    async def reactivate_account(self) -> user_schemas.ReactivateAccountResponseSchema:
         """
         Reactivates a deactivated user account by setting `is_active` to True.
 
@@ -329,7 +333,7 @@ class UserRepository(AbstractUserInterface):
             success="Account reactivated."
         )
 
-    async def update_user_author_email(self):
+    async def update_user_author_email(self) -> user_schemas.UpdateEmailResponseSchema:
         """
         Updates the email address of the current user in the database.
 
@@ -389,9 +393,7 @@ class UserRepository(AbstractUserInterface):
         await self.async_session.commit()
         return user_schemas.UpdateNameResponseSchema(success="Name updated.")
 
-
-
-    async def upload_user_author_image(self)->user_schemas.UploadImageResponseSchema:
+    async def upload_user_author_image(self) -> user_schemas.UploadImageResponseSchema:
         """
         Uploads a user's profile image, replacing the old one if it exists.
         Enforces a 3.5 MB file size limit.
@@ -445,7 +447,8 @@ class UserRepository(AbstractUserInterface):
                 shutil.copyfileobj(self.photo.image.file, buffer)
         except Exception as e:
             raise HTTPException(
-                status_code=500, detail=f"An error occurred while saving the file: {str(e)}"
+                status_code=500,
+                detail=f"An error occurred while saving the file: {str(e)}",
             )
 
         # save the image_url path in the db
@@ -454,8 +457,37 @@ class UserRepository(AbstractUserInterface):
         )
         result = await self.async_session.execute(stmt)
         if result.rowcount == 0:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed"
+            )
 
         await self.async_session.commit()
 
         return user_schemas.UploadImageResponseSchema(success="Image uploaded.")
+
+    async def remove_account(self) -> user_schemas.RemovedUserAuthorAccountSchema:
+        stmt = delete(User).where(User.name == self.user.name)
+        result = await self.async_session.execute(stmt)
+        await self.async_session.commit()
+
+        if result.rowcount == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"No account with the name {self.user.name} found.",
+            )
+        return user_schemas.RemovedUserAuthorAccountSchema(success="Account reomved.")
+
+    async def update_user_balance(self) -> user_schemas.BalanceUpdateSchemaResponse:
+        stmt = (
+            update(User)
+            .where(User.name == self.user.name)
+            .values(balance=self.balance.value)
+        )
+        result = await self.async_session.execute(stmt)
+        if result.rowcount == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Could not update balance",
+            )
+        await self.async_session.commit()
+        return user_schemas.BalanceUpdateSchemaResponse(success="Balance updated.")

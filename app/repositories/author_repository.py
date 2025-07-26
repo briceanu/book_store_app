@@ -6,22 +6,32 @@ from app.models.app_models import Author
 from app.interfaces.author_interface import AbstractAuthorInterface
 from app.schemas import author_schemas
 from sqlalchemy.ext.asyncio import AsyncSession
+from dataclasses import dataclass
 
-
+@dataclass
 class AuthorRepository(AbstractAuthorInterface):
-    def __init__(
-        self,
-        author: Author | None = None,
-        async_session: AsyncSession | None = None,
-        author_description: author_schemas.AuthorDescription | None = None,
-    ):
-        self.author: Author | None = author
-        self.author_description: author_schemas.AuthorDescription | None = (
-            author_description
-        )
-        self.async_session: AsyncSession | None = async_session
+    """
+    Repository class for managing author-related operations.
 
-    async def set_author_description(self):
+    This class implements the AbstractAuthorInterface and provides methods
+    to interact with the Author model, including setting the author's description.
+
+    Attributes:
+        author (Author | None): The Author instance to operate on.
+        author_description (author_schemas.AuthorDescription | None): 
+            The schema containing the new author description data.
+        async_session (AsyncSession | None): SQLAlchemy asynchronous session for database operations.
+
+    Methods:
+        set_author_description(): Updates the author's description using provided schema data.
+    """
+
+
+    author: Author | None = None
+    author_description: author_schemas.AuthorDescription | None = None 
+    async_session: AsyncSession | None = None
+
+    async def set_author_description(self) -> author_schemas.AuthorDescriptionResponse:
         """
         Sets or updates the description for the current author.
 

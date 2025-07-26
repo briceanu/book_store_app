@@ -1,16 +1,19 @@
 import re
 from enum import Enum
-from typing import List
-from fastapi import UploadFile
+from typing import Annotated
+
+from fastapi import HTTPException, UploadFile, status
 from pydantic import (
-    EmailStr,
     BaseModel,
     ConfigDict,
     EmailStr,
     Field,
     field_validator,
     model_validator,
+
+    
 )
+from decimal import Decimal
 
 
 def password_constrains(value):
@@ -34,18 +37,7 @@ class ScopesEnum(str, Enum):
     AUTHOR = "author"
 
 
-class BookStatusEnum(str, Enum):
-    DRAFT = "draft"
-    PUBLISHED = "published"
 
-
-class OrderStatus(str, Enum):
-    PENDING = "pending"
-    PROCESSING = "processing"
-    SHIPPED = "shipped"
-    DELIVERED = "delivered"
-    CANCELLED = "cancelled"
-    FAILED = "failed"
 
 
 class UserAuthorSignUpSchema(BaseModel):
@@ -54,7 +46,7 @@ class UserAuthorSignUpSchema(BaseModel):
     )
     password: str
     email: EmailStr
-    scopes: List[ScopesEnum]
+    scopes: list[ScopesEnum]
 
     @field_validator("password")
     @classmethod
@@ -146,12 +138,45 @@ class UpdateEmail(BaseModel):
 
 
 class UpdateName(BaseModel):
-    new_name: str = Field(..., max_length=100)
+    new_name: str = Field(..., max_length=100, title="new name of the user")
     model_config = ConfigDict(extra="forbid")
+
 
 class UploadImageSchema(BaseModel):
-    image:UploadFile
+    image: UploadFile
     model_config = ConfigDict(extra="forbid")
 
+    @field_validator("image")
+    @classmethod
+    def validate_image(cls, value):
+        allowed_ext = ["jpeg", "jpg", "png"]  
+        filename = value.filename.lower()
+        parts = filename.split(".")
+        if len(parts) > 2:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid file name: Double extensions are not allowed. No more than one dot allowed.",
+            )
+        ext = parts[-1]
+        if ext not in allowed_ext:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only jpeg, jpg, and png files are allowed for images.",
+            )
+        return value
+
+
 class UploadImageResponseSchema(BaseModel):
+    success: str
+
+
+class RemovedUserAuthorAccountSchema(BaseModel):
+    success: str
+
+class BalanceUpdateSchemaResponse(BaseModel):
     success:str
+
+class BalanceSchemaIn(BaseModel):
+    value: Annotated[Decimal, Field(ge=0, max_digits=6, decimal_places=2)]
+
+    model_config = ConfigDict(extra='forbid')
