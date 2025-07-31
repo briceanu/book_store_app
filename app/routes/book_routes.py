@@ -12,8 +12,6 @@ from app.services.book_service import BookService
 from fastapi import File
 from datetime import date
 from decimal import Decimal
-from pydantic import BeforeValidator, AfterValidator
-from app.schemas.validators import protection_against_xss
 from typing import Literal
 
 router = APIRouter(prefix="/api/v1/books", tags=["routes for the book"])
@@ -171,15 +169,43 @@ async def get_all_books(
 @router.get(
     "/filter_books_by_criteria",
     description="filter books by : author_name , price , date_of_publish",
+    response_model=list[book_schemas.BookFilterResponse],
 )
 async def filter_book_by_user_criteria(
     price: Annotated[Decimal, Query(ge=0.01, le=9999.99)],
     date_of_publish: Annotated[date, Query(description="the format is 2012-03-20")],
-    author_name: Annotated[str, Query(max_length=30)],
     order_by: Annotated[Literal["price", "date_of_publish"], Query()],
     filter_book_order_mode: Annotated[Literal["ascending", "descending"], Query()],
+    author_name: Annotated[str | None, Query(max_length=30)] = None,
     async_session=Depends(get_async_db),
-):
+) -> list[book_schemas.BookFilterResponse]:
+    """
+    Filter books based on user-defined criteria.
+
+    This endpoint allows users to filter books using the following query parameters:
+    - Author name (optional)
+    - Price (required, must be between 0.01 and 9999.99)
+    - Date of publish (required, format: YYYY-MM-DD)
+    - Order mode: ascending or descending (required)
+    - Order by: price or date_of_publish (required)
+
+    The results are paginated (offset=2, limit=10) and ordered based on the chosen field and direction.
+
+    Args:
+        price (Decimal): The price threshold for filtering books.
+        date_of_publish (date): The date threshold for filtering books.
+        order_by (Literal): The field to order the results by ("price" or "date_of_publish").
+        filter_book_order_mode (Literal): The sorting direction ("ascending" or "descending").
+        author_name (str, optional): Filter by author name if provided.
+        async_session: The database session dependency.
+
+    Returns:
+        list[BookFilterResponse]: A list of books matching the filtering criteria.
+
+    Raises:
+        HTTPException: If the specified author does not exist (404) or an internal error occurs (500).
+    """
+
     try:
         repo = BookRepository(
             author_name=author_name,
@@ -201,4 +227,228 @@ async def filter_book_by_user_criteria(
         )
 
 
-# filter_books_by_criteria
+@router.get("/the-most-sold-book")
+async def get_the_most_sold_book(async_session: AsyncSession = Depends(get_async_db)):
+    """
+    Retrieve the most sold book.
+
+    This endpoint calculates and returns the book that has been sold the most based
+    on the total quantity across all order items.
+
+    Returns:
+        dict: A dictionary containing:
+            - book_id (int): The ID of the most sold book.
+            - nr_of_sold (int): The total quantity sold.
+
+    Raises:
+        HTTPException 404: If the book cannot be found.
+        HTTPException 500: If an unexpected error occurs during processing.
+    """
+    try:
+        repo = BookRepository(async_session=async_session)
+        service = BookService(repo)
+        return await service.get_the_most_sold_book()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred: {str(e)}",
+        )
+
+
+@router.get("/average-book-price")
+async def get_the_most_sold_book(async_session: AsyncSession = Depends(get_async_db)):
+    """
+    Endpoint to retrieve the average price of books per author.
+
+    Calls the service method to fetch average book prices grouped by author,
+    returning a list of authors along with their average book price.
+
+    Args:
+        async_session (AsyncSession): Database session dependency.
+
+    Returns:
+        List[dict]: A list of authors and their average book prices.
+
+    Raises:
+        HTTPException: Returns 500 Internal Server Error if any exception occurs.
+    """
+    try:
+        repo = BookRepository(async_session=async_session)
+        service = BookService(repo)
+        return await service.average_book_price()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred: {str(e)}",
+        )
+
+
+@router.get("/book-with-nr-of-cover-images")
+async def get_the_most_sold_book(
+    number_of_images: Annotated[
+        int, Query(ge=1, description="number of images to query")
+    ],
+    async_session: AsyncSession = Depends(get_async_db),
+):
+    """
+    Retrieve books that have at least the specified number of cover images.
+
+    Args:
+        number_of_images (int): Minimum number of cover images a book must have.
+        async_session (AsyncSession): Database session dependency.
+
+    Returns:
+        List[Book]: A list of books matching the criteria.
+
+    Raises:
+        HTTPException: If any internal error occurs during query execution.
+    """
+    try:
+        repo = BookRepository(
+            async_session=async_session, number_of_images=number_of_images
+        )
+        service = BookService(repo)
+        return await service.books_with_nr_cover_images()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred: {str(e)}",
+        )
+
+
+@router.get("/author-books")
+async def get_author_books(
+    author_name: Annotated[
+        str, Query(max_length=200, description="name of the author")
+    ],
+    async_session: AsyncSession = Depends(get_async_db),
+):
+    """
+    Retrieve all books published by a specific author along with their sales data.
+
+    This endpoint takes an author's name as a query parameter, fetches all books
+    written by that author, and returns relevant information such as title, book ID,
+    publication date, and the total number of items sold.
+
+    Args:
+        author_name (str): The full name of the author to search for.
+        async_session (AsyncSession): The SQLAlchemy async session dependency.
+
+    Returns:
+        List[dict]: A list of books written by the specified author. Each dictionary contains:
+            - author_name (str)
+            - book_title (str)
+            - book_id (UUID)
+            - date_of_publish (str in ISO format)
+            - sold_items (int)
+
+    Raises:
+        HTTPException:
+            - 404 if the author is not found.
+            - 500 if an unexpected error occurs.
+    """
+
+    try:
+        repo = BookRepository(async_session=async_session, author_name=author_name)
+        service = BookService(repo)
+        return await service.get_books_by_author_service()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred: {str(e)}",
+        )
+
+
+@router.get("/author-unsold-books")
+async def get_author_unsold_books(
+    author_name: Annotated[
+        str, Query(max_length=200, description="name of the author")
+    ],
+    async_session: AsyncSession = Depends(get_async_db),
+):
+    """
+    Retrieve all books written by a specific author that have never been sold.
+
+    This endpoint:
+    - Accepts the author's name as a query parameter.
+    - Returns a list of books that have not been purchased by any customer.
+    - Raises an error if the author is not found.
+
+    Query Parameters:
+        author_name (str): The full name of the author. Must be a string with a maximum length of 200 characters.
+
+    Returns:
+        list[Book]: A list of Book objects that have not been sold.
+
+    Raises:
+        HTTPException 404: If no author with the given name is found.
+        HTTPException 500: For any unexpected server errors.
+    """
+
+    try:
+        repo = BookRepository(async_session=async_session, author_name=author_name)
+        service = BookService(repo)
+        return await service.get_unsold_books_by_author_name()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred: {str(e)}",
+        )
+
+
+
+
+@router.get("/author-books")
+async def get_author_books(
+    author_name: Annotated[
+        str, Query(max_length=200, description="name of the author")
+    ],
+    async_session: AsyncSession = Depends(get_async_db),
+):
+    """
+    Retrieve all books published by a specific author along with their sales data.
+
+    This endpoint takes an author's name as a query parameter, fetches all books
+    written by that author, and returns relevant information such as title, book ID,
+    publication date, and the total number of items sold.
+
+    Args:
+        author_name (str): The full name of the author to search for.
+        async_session (AsyncSession): The SQLAlchemy async session dependency.
+
+    Returns:
+        List[dict]: A list of books written by the specified author. Each dictionary contains:
+            - author_name (str)
+            - book_title (str)
+            - book_id (UUID)
+            - date_of_publish (str in ISO format)
+            - sold_items (int)
+
+    Raises:
+        HTTPException:
+            - 404 if the author is not found.
+            - 500 if an unexpected error occurs.
+    """
+
+    try:
+        repo = BookRepository(async_session=async_session, author_name=author_name)
+        service = BookService(repo)
+        return await service.get_books_by_author_service()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred: {str(e)}",
+        )
+

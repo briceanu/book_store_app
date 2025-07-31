@@ -72,3 +72,11 @@ class AbstractUserInterface(ABC):
     @abstractmethod
     def update_user_balance(self)->None:
         pass
+
+    @abstractmethod
+    def order_history_summary_for_user(self) -> None:
+        pass
+
+    @abstractmethod
+    def high_spending_users(self) -> None:
+        pass

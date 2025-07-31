@@ -1,5 +1,6 @@
-import os, shutil
+import os, shutil, uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 import jwt
 from fastapi import BackgroundTasks, HTTPException, status, UploadFile
@@ -7,12 +8,12 @@ from fastapi.security.oauth2 import OAuth2PasswordRequestForm
 from jwt import ExpiredSignatureError
 from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, func, desc, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
 from app.interfaces.user_interface import AbstractUserInterface
-from app.models.app_models import User, Author
+from app.models.app_models import User, Author, Order, OrderItem, Book
 from app.redis_client import redis_client
 from app.repositories import user_logic
 from app.repositories.user_logic import black_list_token, is_token_blacklisted
@@ -21,6 +22,7 @@ from app.send_email import send_in_background
 from dataclasses import dataclass
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 @dataclass
 class UserRepository(AbstractUserInterface):
@@ -46,9 +48,8 @@ class UserRepository(AbstractUserInterface):
         photo (UploadFile | None): Profile image uploaded by the user or author.
     """
 
-
     async_session: AsyncSession | None = None
-    user_data_sign_up: user_schemas.UserAuthorSignUpSchema | None =None
+    user_data_sign_up: user_schemas.UserAuthorSignUpSchema | None = None
     background_tasks: BackgroundTasks | None = None
     form_data: OAuth2PasswordRequestForm | None = None
     token: user_schemas.TokenData | None = None
@@ -60,6 +61,8 @@ class UserRepository(AbstractUserInterface):
     author: Author | None = None
     photo: UploadFile | None = None
     balance: user_schemas.BalanceSchemaIn | None = None
+    user_id: uuid.UUID | None = None
+    amount_spent: Decimal | None = None
 
     async def sign_up(self) -> user_schemas.SignUpSchemaResponse:
         """
@@ -466,6 +469,16 @@ class UserRepository(AbstractUserInterface):
         return user_schemas.UploadImageResponseSchema(success="Image uploaded.")
 
     async def remove_account(self) -> user_schemas.RemovedUserAuthorAccountSchema:
+        """
+        Deletes the currently authenticated user's account based on their username.
+
+        Returns:
+            RemovedUserAuthorAccountSchema: A response indicating successful account removal.
+
+        Raises:
+            HTTPException: If no user with the specified name exists in the database.
+        """
+
         stmt = delete(User).where(User.name == self.user.name)
         result = await self.async_session.execute(stmt)
         await self.async_session.commit()
@@ -478,6 +491,21 @@ class UserRepository(AbstractUserInterface):
         return user_schemas.RemovedUserAuthorAccountSchema(success="Account reomved.")
 
     async def update_user_balance(self) -> user_schemas.BalanceUpdateSchemaResponse:
+        """
+        Updates the balance of the currently authenticated user.
+
+        This method performs an update on the User table, setting the user's balance
+        to the new value provided in `self.balance.value`, based on their username.
+        If no user is found with the given name, an HTTP 400 error is raised.
+
+        Returns:
+            BalanceUpdateSchemaResponse: A response object indicating the balance update
+            was successful.
+
+        Raises:
+            HTTPException: If the user is not found or the update operation affects no rows.
+        """
+
         stmt = (
             update(User)
             .where(User.name == self.user.name)
@@ -491,3 +519,55 @@ class UserRepository(AbstractUserInterface):
             )
         await self.async_session.commit()
         return user_schemas.BalanceUpdateSchemaResponse(success="Balance updated.")
+
+    async def order_history_summary_for_user(self):
+        stmt = (
+            select(
+                Order.order_id,
+                func.coalesce(func.sum(OrderItem.quantity).label("quantity"), 0),
+                func.coalesce(
+                    func.sum(OrderItem.items_total_price).label("total_price"), 0
+                ),
+            )
+            .where(Order.user_id == self.user_id)
+            .join(OrderItem, Order.order_id == OrderItem.order_id)
+            .group_by(
+                Order.order_id,
+            )
+        )
+        result = (await self.async_session.execute(stmt)).all()
+        return [
+            {"order id": order_id, "quantity": quantity, "total price": total_price}
+            for order_id, quantity, total_price in result
+        ]
+
+    # High-Spending Users
+    # Identify users who have spent more than a specific amount (e.g., $500) in total orders.
+    async def high_spending_users(self):
+        """
+        Retrieve users who have spent more than a specified amount on orders.
+
+        This method calculates the total amount each user has spent by summing
+        the `items_total_price` of all their order items. It then filters to include
+        only those users whose total spending exceeds `self.amount_spent`.
+        The results are ordered in descending order of total amount spent.
+
+        Returns:
+            List[Dict[str, Any]]: A list of dictionaries, each containing the user's name
+            and their total amount spent, formatted as:
+                [{'user name': <str>, 'amount spent': <float>}]
+        """
+        amount_spent_by_client = func.coalesce(
+            func.sum(OrderItem.items_total_price), 0
+        ).label("client_amount_spent")
+        stmt = (
+            select(User.name, amount_spent_by_client)
+            .join(Order, Order.user_id == User.id)
+            .join(OrderItem, OrderItem.order_id == Order.order_id)
+            .group_by(User.id,User.name)
+            .having(amount_spent_by_client > self.amount_spent)
+            .order_by(desc(amount_spent_by_client))
+        )
+        result = (await self.async_session.execute(stmt)).all()
+        return [{"user name": name, "amount spent": amount} for name, amount in result]
+ 

@@ -1,5 +1,5 @@
 from typing import Annotated
-
+from decimal import Decimal
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -21,6 +21,7 @@ from app.repositories.user_logic import get_current_active_user, get_current_use
 from app.repositories.user_repository import UserRepository
 from app.schemas import user_schemas
 from app.services.user_service import UserService
+import uuid
 
 router = APIRouter(prefix="/api/v1/user", tags=["routes for the user and author"])
 
@@ -593,27 +594,43 @@ async def update_user_balance(
         )
 
 
-@router.get("/ony_authors")
-async def protected_author_route(
-    current_user: Annotated[User, Security(get_current_active_user, scopes=["author"])],
+@router.get(
+    "/history",
+    status_code=status.HTTP_200_OK,
+)
+async def get_user_order_history(
+    user_id: Annotated[uuid.UUID, Query()],
+    async_session: AsyncSession = Depends(get_async_db),
 ):
-    return "the author is you"
-
-
-@router.get("/users_only")
-async def protected_user_route(
-    current_user: Annotated[User, Security(get_current_active_user, scopes=["user"])],
-):
-    return "you're just a normal user"
-
-
-@router.get("/both_can_use")
-async def protect_route_for_both(
-    current_user: Annotated[User, Depends(get_current_active_user)],
-):
-    if not ("user" in current_user.scopes or "author" in current_user.scopes):
+    try:
+        repo = UserRepository(async_session=async_session, user_id=user_id)
+        service = UserService(repo)
+        return await service.user_order_history()
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not enough permissions",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred: {str(e)}",
         )
-    return "both users"
+
+
+@router.get(
+    "/top-spent",
+    status_code=status.HTTP_200_OK,
+)
+async def get_user_order_history(
+    amount_spent: Annotated[Decimal, Query(decimal_places=2, max_digits=6)],
+    async_session: AsyncSession = Depends(get_async_db),
+):
+    try:
+        repo = UserRepository(async_session=async_session, amount_spent=amount_spent)
+        service = UserService(repo)
+        return await service.users_that_spent_over_an_amount()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred: {str(e)}",
+        )

@@ -25,3 +25,21 @@ class AbstractBookInterface(ABC):
     @abstractmethod
     def filter_books(self) -> None:
         pass
+
+    @abstractmethod
+    def get_the_most_purchased_book(self) -> None:
+        pass
+    @abstractmethod
+    def average_book_price_per_author(self) -> None:
+        pass
+
+    @abstractmethod
+    def books_that_have_more_than_nr_cover_images(self) -> None:
+        pass
+    @abstractmethod
+    def get_books_by_author(self) -> None:
+        pass
+
+    @abstractmethod
+    def get_unsold_books_by_author(self) -> None:
+        pass

@@ -1,8 +1,8 @@
 """first migrarion
 
-Revision ID: a72265848e20
+Revision ID: 5c97967e695b
 Revises: 
-Create Date: 2025-07-12 23:23:37.904508
+Create Date: 2025-07-26 19:20:52.017154
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'a72265848e20'
+revision: str = '5c97967e695b'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -31,7 +31,7 @@ def upgrade() -> None:
     sa.Column('image_url', sa.String(length=100), nullable=True),
     sa.Column('is_active', sa.Boolean(), nullable=False),
     sa.Column('type', sa.String(length=50), nullable=False),
-    sa.Column('balance', sa.DECIMAL(precision=4, scale=2), nullable=False),
+    sa.Column('balance', sa.DECIMAL(precision=6, scale=2), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_user')),
     sa.UniqueConstraint('email', name=op.f('uq_user_email')),
     sa.UniqueConstraint('id', name=op.f('uq_user_id')),

@@ -17,3 +17,27 @@ class AbstractAuthorInterface(ABC):
     @abstractmethod
     def set_author_description(self) -> None:
         pass
+
+    @abstractmethod
+    def get_authors_by_number_of_published_books(self) -> None:
+        pass
+
+    @abstractmethod
+    def get_authors_with_no_published_books(self) -> None:
+        pass
+
+    @abstractmethod
+    def top_three_paid_authors(self) -> None:
+        pass
+
+    @abstractmethod
+    def authors_that_sold_more_than_a_specific_nr_of_books(self) -> None:
+        pass
+
+    @abstractmethod
+    def authors_revenue(self) -> None:
+        pass
+
+    @abstractmethod
+    def author_best_selling_book(self) -> None:
+        pass

@@ -169,3 +169,28 @@ class UserService:
             BalanceUpdateSchemaResponse: A Pydantic schema containing a success message.
         """
         return await self.repository.update_user_balance()
+
+    async def user_order_history(self):
+        """
+        Asynchronously retrieves a summary of the order history for the current user.
+
+        This method delegates to the repository layer to fetch the user's past orders,
+        typically including information such as order date, total amount, and status.
+
+        Returns:
+            List[OrderSummary]: A list of summarized order records for the user.
+        """
+        return await self.repository.order_history_summary_for_user()
+
+    async def users_that_spent_over_an_amount(self):
+        """
+        Retrieves a list of users who have spent more than a specified amount on orders.
+
+        This method delegates the logic to the repository layer, where the total order
+        amounts per user are calculated and compared against a threshold.
+
+        Returns:
+            List[Dict]: A list of dictionaries, each containing user details and
+            their total spending, for users who exceeded the predefined amount.
+        """
+        return await self.repository.high_spending_users()

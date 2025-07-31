@@ -5,7 +5,7 @@ from app.schemas.book_schemas import (
     BookFilterResponse,
     CoverImageModel,
 )
-from app.models.app_models import Author, Book, CoverImage, User
+from app.models.app_models import Author, Book, CoverImage, User, OrderItem
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import insert, select
 from sqlalchemy.orm import joinedload
@@ -14,7 +14,7 @@ import os, shutil
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from sqlalchemy import and_
+from sqlalchemy import and_, func, desc
 import operator
 
 
@@ -52,6 +52,7 @@ class BookRepository(AbstractBookInterface):
     date_of_publish: date | None = None
     filter_book_order_by: str | None = None
     filter_book_order_mode: str | None = None
+    number_of_images: int | None = None
 
     async def create_book(self) -> BookResponseCreateSchema:
         """
@@ -189,6 +190,85 @@ class BookRepository(AbstractBookInterface):
 
         return [
             BookFilterResponse(
+                book_id=book.book_id,
+                date_of_publish=book.date_of_publish,
+                number_of_items=book.number_of_items,
+                description=book.description,
+                title=book.title,
+                contributing_authors=book.contributing_authors,
+                status=book.status,
+                price=book.price,
+                author_id=book.author_id,
+                cover_images=[
+                    CoverImageModel(
+                        cover_id=ci.cover_id,
+                        image_url=ci.image_url,
+                        book_id=ci.book_id,
+                    )
+                    for ci in book.cover_images
+                ],
+            )
+            for book in result
+        ]
+
+    # lerning how to filter data
+
+    async def filter_books(self) -> list[BookFilterResponse]:
+        """
+        Asynchronously filter and retrieve a list of books based on specified criteria.
+
+        Filters books using the following optional attributes from the instance:
+        - `author_name`: If provided, filters books by the corresponding author's name.
+        - `price`: Filters books by comparing the price based on the `filter_book_order_mode`.
+        - `date_of_publish`: Filters books by comparing the publication date based on `filter_book_order_mode`.
+        - `filter_book_order_mode`: Determines sorting and comparison direction ("ascending" or "descending").
+        - `filter_book_order_by`: The column by which the result set will be ordered.
+
+        The results are paginated with a fixed offset of 2 and a limit of 10.
+
+        Raises:
+            HTTPException: If the specified author name does not match any author in the database.
+
+        Returns:
+            List[Book]: A list of Book objects that match the filtering criteria.
+        """
+        author_filter = []
+        if self.author_name:
+            author = (
+                await self.async_session.execute(
+                    select(Author).where(Author.name == self.author_name.strip())
+                )
+            ).scalar()
+            if not author:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"no user with the name {self.author_name} found.",
+                )
+            author_filter.append(author.id)
+        price_comparison = (
+            operator.ge if self.filter_book_order_mode == "ascending" else operator.le
+        )
+        date_comparison = (
+            operator.le if self.filter_book_order_mode == "descending" else operator.ge
+        )
+        stmt = (
+            select(Book)
+            .options(joinedload(Book.cover_images))
+            .where(
+                and_(
+                    price_comparison(Book.price, self.price),
+                    date_comparison(Book.date_of_publish, self.date_of_publish),
+                ),
+            )
+            .order_by(self.filter_book_order_by)
+            .offset(2)
+            .limit(10)
+        )
+        if author_filter:
+            stmt = stmt.where(Book.author_id.in_(author_filter))
+        result = (await self.async_session.execute(stmt)).unique().scalars().all()
+        return [
+            BookFilterResponse(
                 book_id=data.book_id,
                 date_of_publish=data.date_of_publish,
                 number_of_items=data.number_of_items,
@@ -211,40 +291,190 @@ class BookRepository(AbstractBookInterface):
             for data in result
         ]
 
-    # lerning how to filter data
+        # Most Purchased Book
 
-    async def filter_books(self):
-        author = (
-            await self.async_session.execute(
-                select(Author).where(Author.name == self.author_name)
+    async def get_the_most_purchased_book(self):
+        """
+        Retrieve the most purchased book based on total quantity sold.
+
+        Executes a query to find the book with the highest sum of ordered quantities
+        across all order items. It groups results by book ID and title, then returns
+        the book with the maximum total sold quantity.
+
+        Returns:
+            dict: A dictionary containing:
+                - book_id (int): The ID of the most purchased book.
+                - title (str): The title of the most purchased book.
+                - nr_of_items (int): Total number of items sold for that book.
+
+        Raises:
+            Exception: If the query fails or no results are found.
+        """
+        stmt = (
+            select(
+                Book.book_id,
+                Book.title,
+                func.sum(OrderItem.quantity).label("total_quantity"),
             )
-        ).scalar()
-        if not author:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"no user with the name {self.author_name} found.",
-            )
-        price_comparison = (
-            operator.ge if self.filter_book_order_mode == "ascending" else operator.le
+            .join(OrderItem, Book.book_id == OrderItem.book_id)
+            .group_by(Book.book_id, Book.title)
+            .order_by(desc(func.sum(OrderItem.quantity)))  # Most sold book first
+            .limit(1)
         )
-        date_comparison = (
-            operator.le if self.filter_book_order_mode == "descending" else operator.ge
+        result = (await self.async_session.execute(stmt)).first()
+        book_id, title, nr_of_items = result
+        return {"book_id": book_id, "title": title, "nr_of_items": nr_of_items}
+
+    # Average Book Price per Author
+    async def average_book_price_per_author(self):
+        """
+        Calculate the average price of all books published by each author.
+
+        Performs an outer join between authors and books, computes the average
+        book price per author, and returns the results ordered by average price descending.
+
+        Returns:
+            List[dict]: A list of dictionaries containing author names and their average book price.
+                        Example: [{"name": "Author Name", "average price": 25.50}, ...]
+
+        """
+
+        # For each author, return their name and the average price of all books they've published.
+        avg_price = func.coalesce(func.avg(Book.price), 0)
+        stmt = (
+            select(Author.name, avg_price)
+            .outerjoin(Book, Author.id == Book.author_id)
+            .group_by(Author.id, Author.name)
+            .order_by(desc(avg_price))
         )
+        result = (await self.async_session.execute(stmt)).all()
+        return [
+            {"name": name, "average price": average_price}
+            for name, average_price in result
+        ]
+
+    async def books_that_have_more_than_nr_cover_images(self):
+        """
+        Retrieve books that have more than a specified number of cover images attached.
+
+        Uses a SQL query with a join between Book and CoverImage tables, grouping by book,
+        and filtering to include only those books with at least 2 cover images.
+
+        Returns:
+            List[Book]: A list of Book objects that have 2 or more cover images.
+        """
         stmt = (
             select(Book)
             .options(joinedload(Book.cover_images))
-            .where(
-                and_(
-                    Book.author_id == author.id,
-                    price_comparison(Book.price, self.price),
-                    date_comparison(Book.date_of_publish, self.date_of_publish),
-                )
+            .join(CoverImage, CoverImage.book_id == Book.book_id)
+            .group_by(Book.book_id)
+            .having(
+                func.coalesce(func.count(CoverImage.book_id), 0)
+                >= self.number_of_images
             )
-            .order_by(self.filter_book_order_by)
-            .offset(2)
-            .limit(10)
         )
-        books = (await self.async_session.execute(stmt)).unique().scalars().all()
-        return books
+        result = (await self.async_session.execute(stmt)).unique().scalars().all()
+        return result
 
-    # author_name , price , date_of_publish
+    # give the name of the author and show title of all books
+    async def get_books_by_author(self):
+        """
+        Retrieve all books published by a specific author, along with sales data.
+
+        This method looks up the author by name (stored in `self.author_name`),
+        and returns all books written by that author, including each book's title,
+        ID, publication date, and the total number of sold items (aggregated from order items).
+
+        Returns:
+            List[dict]: A list of dictionaries, each containing:
+                - author name (str): The full name of the author.
+                - book title (str): The title of the book.
+                - book id (UUID): The unique identifier of the book.
+                - date of publish (str): The ISO-formatted publication date.
+                - sold items (int): The total number of items sold for that book.
+
+        Raises:
+            HTTPException: If no author with the specified name is found in the database.
+        """
+
+        author_id = (
+            await self.async_session.execute(
+                select(Author.id).where(Author.name == self.author_name)
+            )
+        ).scalar()
+        if not author_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"no author with the name {self.author_name} found.",
+            )
+        sum_of_books = func.coalesce(func.sum(OrderItem.quantity), 0)
+        stmt = (
+            select(
+                Author.name,
+                Book.title,
+                Book.book_id,
+                Book.date_of_publish,
+                sum_of_books,
+            )
+            .join(OrderItem, OrderItem.book_id == Book.book_id)
+            .join(Author, Author.id == Book.author_id)
+            .where(Book.author_id == author_id)
+            .group_by(Book.book_id, Author.name)
+            .order_by(desc(sum_of_books))
+        )
+        result = (await self.async_session.execute(stmt)).all()
+        return [
+            {
+                "author name": author_name,
+                "book title": title,
+                "book id": book_id,
+                "date of publish": date_of_publish.isoformat(),
+                "sold items": sold,
+            }
+            for author_name, title, book_id, date_of_publish, sold in result
+        ]
+
+    # books that have not been bought by a specific author
+
+    async def get_unsold_books_by_author(self):
+        """
+        Retrieve all books by a specific author that have never been sold.
+
+        This method:
+        - Looks up the author by name.
+        - Constructs a subquery of all book IDs that have been sold by this author.
+        - Retrieves all books written by this author that are not in the sold books list.
+
+        Returns:
+            list[Book]: A list of unsold Book objects for the given author.
+
+        Raises:
+            HTTPException: If the author with the specified name does not exist (404).
+        """
+        author_id = (
+            await self.async_session.execute(
+                select(Author.id).where(Author.name == self.author_name)
+            )
+        ).scalar()
+        if not author_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"no author with the name {self.author_name} found.",
+            )
+        # all the sold books of one author
+        book_subquery = (
+            select(OrderItem.book_id)
+            .join(Book, OrderItem.book_id == Book.book_id)
+            .where(Book.author_id == author_id)
+            .group_by(Book.book_id, OrderItem.book_id)
+        )
+        stmt = (
+            select(Book)
+            .join(Author, Author.id == Book.author_id)
+            .where(and_(~Book.book_id.in_(book_subquery), Book.author_id == author_id))
+            .group_by(Author.id, Book.book_id)
+        )
+        unpublised_books = (await self.async_session.execute(stmt)).scalars().all()
+        return unpublised_books
+
+
