@@ -61,7 +61,7 @@ async def authenticate_user(
         await async_session.execute(select(User).where(User.name == username))
     ).scalar_one_or_none()
 
-    if user is None:
+    if not user :
         return False
     if not pwd_context.verify(password, user.password):
         return False
@@ -158,7 +158,7 @@ async def get_current_user(
             token, os.getenv("SECRET"), algorithms=[os.getenv("ALGORITHM")]
         )
         username = payload.get("sub")
-        if username is None:
+        if not username :
             raise credentials_exception
         token_scopes = payload.get("scopes", [])
         token_data = user_schemas.TokenData(scopes=token_scopes, username=username)
@@ -169,7 +169,7 @@ async def get_current_user(
             select(User).where(User.name == token_data.username)
         )
     ).scalar_one_or_none()
-    if user_from_db is None:
+    if not user_from_db :
         raise credentials_exception
     for scope in security_scopes.scopes:
         if scope not in token_data.scopes:

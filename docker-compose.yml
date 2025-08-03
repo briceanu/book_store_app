@@ -1,0 +1,57 @@
+services:
+  redis:
+    image: redis:7.2.10
+    container_name: redis
+    ports:
+      - '6379:6379'
+    restart: always
+
+  postgres:
+    container_name: container-pg
+    image: postgres
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: test_db
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  celery:
+    container_name: container-celery
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A app.repositories.order_email_task worker --loglevel=info
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+      - postgres
+    environment:
+      DATABASE_URL: postgresql+asyncpg://admin:root@postgres:5432/test_db
+      REDIS_URL: redis://redis:6379/1
+
+  fastapi:
+    container_name: container-fastapi
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    ports:
+      - '8000:8000'
+    depends_on:
+      - postgres
+      - redis # ✅ Add redis here to ensure Redis starts before FastAPI
+    environment:
+      DATABASE_URL: postgresql+asyncpg://admin:root@postgres:5432/test_db
+      REDIS_URL: redis://redis:6379/1 # ✅ Corrected
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

@@ -1,8 +1,8 @@
 """first migrarion
 
-Revision ID: 5c97967e695b
+Revision ID: 495c43f7d721
 Revises: 
-Create Date: 2025-07-26 19:20:52.017154
+Create Date: 2025-08-02 15:26:26.223042
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '5c97967e695b'
+revision: str = '495c43f7d721'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

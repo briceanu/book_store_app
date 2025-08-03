@@ -9,7 +9,7 @@ from app.models.app_models import Author, Book, CoverImage, User, OrderItem
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import insert, select
 from sqlalchemy.orm import joinedload
-from fastapi import HTTPException, status
+from fastapi import HTTPException, status 
 import os, shutil
 from dataclasses import dataclass
 from datetime import date
@@ -53,7 +53,7 @@ class BookRepository(AbstractBookInterface):
     filter_book_order_by: str | None = None
     filter_book_order_mode: str | None = None
     number_of_images: int | None = None
-
+    
     async def create_book(self) -> BookResponseCreateSchema:
         """
         Creates a new book record along with its optional cover images.
@@ -422,6 +422,7 @@ class BookRepository(AbstractBookInterface):
             .group_by(Book.book_id, Author.name)
             .order_by(desc(sum_of_books))
         )
+        print('awopdinawd')
         result = (await self.async_session.execute(stmt)).all()
         return [
             {

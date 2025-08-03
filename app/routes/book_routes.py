@@ -1,21 +1,21 @@
-from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, Security, status, Query
+from datetime import date
+from decimal import Decimal
+from typing import Annotated, Literal
+
+from fastapi import (APIRouter, Depends, File, HTTPException, Query, Request,
+                     Response, Security, status)
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.db_connection import get_async_db
 from app.models.app_models import Author, User
-from app.repositories.user_logic import get_current_active_user
 from app.repositories.book_repository import BookRepository
+from app.repositories.user_logic import get_current_active_user
 from app.schemas import book_schemas
 from app.services.book_service import BookService
-from fastapi import File
-from datetime import date
-from decimal import Decimal
-from typing import Literal
 
 router = APIRouter(prefix="/api/v1/books", tags=["routes for the book"])
-
+ 
 
 @router.post(
     "/create-book",
@@ -31,8 +31,7 @@ async def create_author_book(
     Create a new book for the authenticated author.
 
     This endpoint allows an authenticated user with the "author" scope to create a new book.
-    The request must include valid book data including images (sent as form-data).
-    The book is saved to the database using a repository and service layer.
+    The request must include valid book data,and can include images (sent as form-data).
 
     Args:
         author (Author): The currently authenticated user with "author" scope.
@@ -68,7 +67,7 @@ async def create_author_book(
         )
 
 
-@router.post(
+@router.get(
     "/list-all-books",
     response_model=list[book_schemas.BookFilterResponse],
     status_code=status.HTTP_200_OK,
@@ -406,8 +405,6 @@ async def get_author_unsold_books(
         )
 
 
-
-
 @router.get("/author-books")
 async def get_author_books(
     author_name: Annotated[
@@ -441,7 +438,9 @@ async def get_author_books(
     """
 
     try:
-        repo = BookRepository(async_session=async_session, author_name=author_name)
+        repo = BookRepository(
+            async_session=async_session, author_name=author_name
+        )
         service = BookService(repo)
         return await service.get_books_by_author_service()
     except HTTPException:
@@ -452,3 +451,8 @@ async def get_author_books(
             detail=f"An error occurred: {str(e)}",
         )
 
+
+
+
+
+ 

@@ -9,9 +9,10 @@ import asyncio
 load_dotenv()
 app = Celery(
     'order_email_task',
-    broker='redis://localhost:6379/0',
+    broker='redis://redis:6379/0',
     include=['app.repositories.order_email_task']
 )
+
 
 conf = ConnectionConfig(
     MAIL_USERNAME=os.getenv('MAIL_USERNAME'),
