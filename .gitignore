@@ -1,0 +1,16 @@
+# Ignore individual files
+learn.py
+book_app_connection.session.sql
+.ruff_cache
+
+# Ignore directories inside app/
+app/var/
+app/.env
+app/.ruff_cache/
+app/book_store_app_env/
+app/users_images/
+insert_data.py
+client.html
+uploads/
+on_beach.jpg
+db_credentials.py
