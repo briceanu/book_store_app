@@ -31,7 +31,7 @@ services:
       - redis
       - postgres
     environment:
-      DATABASE_URL: postgresql+asyncpg://admin:root@postgres:5432/test_db
+      DATABASE_URL: postgresql+asyncpg://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DB}
       REDIS_URL: redis://redis:6379/1
 
   fastapi:
@@ -45,10 +45,10 @@ services:
       - '8000:8000'
     depends_on:
       - postgres
-      - redis # ✅ Add redis here to ensure Redis starts before FastAPI
+      - redis
     environment:
-      DATABASE_URL: postgresql+asyncpg://admin:root@postgres:5432/test_db
-      REDIS_URL: redis://redis:6379/1 # ✅ Corrected
+      DATABASE_URL: postgresql+asyncpg://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DB}
+      REDIS_URL: redis://redis:6379/1
     command: >
       sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     restart: unless-stopped
